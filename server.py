@@ -32,6 +32,71 @@ OAUTH_LOGGER = logging.getLogger("xmcp.oauth1")
 REQUEST_TOKEN_URL = "https://api.x.com/oauth/request_token"
 AUTHORIZE_URL = "https://api.x.com/oauth/authorize"
 ACCESS_TOKEN_URL = "https://api.x.com/oauth/access_token"
+OAUTH2_TOKEN_URL = "https://api.twitter.com/2/oauth2/token"
+OAUTH2_REFRESH_THRESHOLD_SECS = 300
+
+
+class OAuth2TokenManager:
+    def __init__(self, access_token: str, refresh_token: str, client_id: str, client_secret: str):
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.expires_at = 0.0
+        self._lock = threading.Lock()
+
+    def get_token(self) -> str:
+        with self._lock:
+            if time.time() > self.expires_at - OAUTH2_REFRESH_THRESHOLD_SECS:
+                self._refresh()
+            return self.access_token
+
+    def _refresh(self) -> None:
+        LOGGER.info("Refreshing OAuth2 access token")
+        resp = requests.post(
+            OAUTH2_TOKEN_URL,
+            auth=(self.client_id, self.client_secret),
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": self.refresh_token,
+                "client_id": self.client_id,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        self.access_token = data["access_token"]
+        if "refresh_token" in data:
+            self.refresh_token = data["refresh_token"]
+        self.expires_at = time.time() + data.get("expires_in", 7200)
+        self._persist()
+
+    def _persist(self) -> None:
+        env_path = Path(__file__).resolve().parent / ".env"
+        if not env_path.exists():
+            return
+        lines = env_path.read_text().splitlines(keepends=True)
+        out: list[str] = []
+        seen = {"X_OAUTH2_ACCESS_TOKEN": False, "X_OAUTH2_REFRESH_TOKEN": False}
+        for line in lines:
+            if line.startswith("X_OAUTH2_ACCESS_TOKEN="):
+                out.append(f"X_OAUTH2_ACCESS_TOKEN={self.access_token}\n")
+                seen["X_OAUTH2_ACCESS_TOKEN"] = True
+            elif line.startswith("X_OAUTH2_REFRESH_TOKEN="):
+                out.append(f"X_OAUTH2_REFRESH_TOKEN={self.refresh_token}\n")
+                seen["X_OAUTH2_REFRESH_TOKEN"] = True
+            else:
+                out.append(line)
+        if not seen["X_OAUTH2_ACCESS_TOKEN"]:
+            out.append(f"X_OAUTH2_ACCESS_TOKEN={self.access_token}\n")
+        if not seen["X_OAUTH2_REFRESH_TOKEN"]:
+            out.append(f"X_OAUTH2_REFRESH_TOKEN={self.refresh_token}\n")
+        tmp = env_path.with_name(env_path.name + ".tmp")
+        tmp.write_text("".join(out))
+        tmp.replace(env_path)
+        os.environ["X_OAUTH2_ACCESS_TOKEN"] = self.access_token
+        os.environ["X_OAUTH2_REFRESH_TOKEN"] = self.refresh_token
 
 
 def is_truthy(value: str | None) -> bool:
@@ -307,7 +372,10 @@ def build_oauth1_client() -> OAuth1Client:
         raise RuntimeError(
             "Missing X_OAUTH_CONSUMER_KEY or X_OAUTH_CONSUMER_SECRET for OAuth1 signing."
         )
-    access_token, access_secret = run_oauth1_flow()
+    access_token = os.getenv("X_OAUTH_ACCESS_TOKEN", "").strip()
+    access_secret = os.getenv("X_OAUTH_ACCESS_TOKEN_SECRET", "").strip()
+    if not access_token or not access_secret:
+        access_token, access_secret = run_oauth1_flow()
     if is_truthy(os.getenv("X_OAUTH_PRINT_TOKENS", "0")):
         print("OAuth1 access token:", access_token)
         print("OAuth1 access token secret:", access_secret)
@@ -345,10 +413,31 @@ def create_mcp() -> FastMCP:
     base_url = os.getenv("X_API_BASE_URL", "https://api.x.com")
     timeout = float(os.getenv("X_API_TIMEOUT", "30"))
 
-    oauth1_client = build_oauth1_client()
+    oauth2_token = os.getenv("X_OAUTH2_ACCESS_TOKEN", "").strip()
+    oauth2_refresh = os.getenv("X_OAUTH2_REFRESH_TOKEN", "").strip()
+    oauth2_client_id = os.getenv("X_OAUTH2_CLIENT_ID", "").strip()
+    oauth2_client_secret = os.getenv("X_OAUTH2_CLIENT_SECRET", "").strip()
     print_oauth_header = is_truthy(os.getenv("X_OAUTH_PRINT_AUTH_HEADER", "0"))
-    if print_oauth_header:
-        print_oauth1_header_probe(oauth1_client, base_url)
+
+    oauth2_manager: OAuth2TokenManager | None = None
+    if oauth2_token:
+        if oauth2_refresh and oauth2_client_id and oauth2_client_secret:
+            oauth2_manager = OAuth2TokenManager(
+                access_token=oauth2_token,
+                refresh_token=oauth2_refresh,
+                client_id=oauth2_client_id,
+                client_secret=oauth2_client_secret,
+            )
+            oauth2_manager.get_token()
+            LOGGER.info("Using OAuth 2.0 bearer token with auto-refresh.")
+        else:
+            LOGGER.info("Using OAuth 2.0 bearer token (no refresh configured).")
+        auth_hook_name = "add_oauth2_bearer"
+    else:
+        oauth1_client = build_oauth1_client()
+        if print_oauth_header:
+            print_oauth1_header_probe(oauth1_client, base_url)
+        auth_hook_name = "sign_oauth1_request"
 
     spec = load_openapi_spec()
     filtered_spec = filter_openapi_spec(spec)
@@ -388,6 +477,11 @@ def create_mcp() -> FastMCP:
 
     b3_flags = os.getenv("X_B3_FLAGS", "1")
 
+    async def add_oauth2_bearer(request: httpx.Request) -> None:
+        token = oauth2_manager.get_token() if oauth2_manager else oauth2_token
+        request.headers["Authorization"] = f"Bearer {token}"
+        request.headers["X-B3-Flags"] = b3_flags
+
     async def sign_oauth1_request(request: httpx.Request) -> None:
         request.headers["X-B3-Flags"] = b3_flags
         headers = dict(request.headers)
@@ -410,6 +504,8 @@ def create_mcp() -> FastMCP:
                 print("OAuth1 Authorization header:", auth_header)
             else:
                 print("OAuth1 Authorization header missing from signed request.")
+
+    auth_hook = add_oauth2_bearer if oauth2_token else sign_oauth1_request
 
     async def log_request(request: httpx.Request) -> None:
         if not debug_enabled:
@@ -440,7 +536,7 @@ def create_mcp() -> FastMCP:
         headers={},
         timeout=timeout,
         event_hooks={
-            "request": [normalize_query_params, sign_oauth1_request, log_request],
+            "request": [normalize_query_params, auth_hook, log_request],
             "response": [log_response],
         },
     )
@@ -452,10 +548,14 @@ def create_mcp() -> FastMCP:
 
 
 def main() -> None:
-    host = os.getenv("MCP_HOST", "127.0.0.1")
-    port = int(os.getenv("MCP_PORT", "8000"))
     mcp = create_mcp()
-    mcp.run(transport="http", host=host, port=port)
+    transport = os.getenv("MCP_TRANSPORT", "http")
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+    else:
+        host = os.getenv("MCP_HOST", "127.0.0.1")
+        port = int(os.getenv("MCP_PORT", "8000"))
+        mcp.run(transport="http", host=host, port=port)
 
 
 if __name__ == "__main__":
