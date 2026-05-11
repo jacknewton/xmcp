@@ -1,0 +1,31 @@
+name = "xmcp"
+main = "src/index.ts"
+compatibility_date = "2026-05-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+
+[[routes]]
+pattern = "xmcp.newton.io"
+custom_domain = true
+
+[[durable_objects.bindings]]
+name = "TOKEN_STORE"
+class_name = "TokenStore"
+
+[[durable_objects.bindings]]
+name = "MCP_OBJECT"
+class_name = "XMcpAgent"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TokenStore", "XMcpAgent"]
+
+[triggers]
+crons = ["0 * * * *"]
+
+[vars]
+X_API_BASE_URL = "https://api.x.com"
+XMCP_LOG_RAW_ARGS = "0"
+
+[observability.logs]
+enabled = true

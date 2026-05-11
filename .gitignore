@@ -9,3 +9,7 @@ env/
 !.env.example
 scripts/
 .oauth_state.json
+worker/node_modules/
+worker/.wrangler/
+worker/.dev.vars
+worker/src/tools.gen.ts
