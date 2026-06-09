@@ -26,6 +26,12 @@ crons = ["0 * * * *"]
 [vars]
 X_API_BASE_URL = "https://api.x.com"
 XMCP_LOG_RAW_ARGS = "0"
+# Defense-in-depth Access verification. Uncomment and set both for production
+# so the Worker re-verifies the Cloudflare Access JWT instead of trusting the
+# edge alone. TEAM_DOMAIN is your Zero Trust team name (e.g. "newton" or
+# "newton.cloudflareaccess.com"); AUD is the Access application's Audience tag.
+# CF_ACCESS_TEAM_DOMAIN = "your-team"
+# CF_ACCESS_AUD = "your-access-application-aud-tag"
 
 [observability.logs]
 enabled = true

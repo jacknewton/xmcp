@@ -7,4 +7,7 @@ interface Env {
   X_OAUTH2_CLIENT_SECRET: string;
   X_OAUTH2_ACCESS_TOKEN?: string;
   X_OAUTH2_REFRESH_TOKEN?: string;
+  // Cloudflare Access verification (defense in depth). Set both in production.
+  CF_ACCESS_TEAM_DOMAIN?: string;
+  CF_ACCESS_AUD?: string;
 }
