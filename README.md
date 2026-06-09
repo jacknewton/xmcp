@@ -83,6 +83,15 @@ and re-deploy.
    - Set the policy to allow your email (or a service token).
    - If using a service token, generate and save the `CF-Access-Client-Id`
      and `CF-Access-Client-Secret`.
+   - Copy the Access application's **Audience (AUD) tag**.
+
+6. Enable in-Worker Access verification (defense in depth). Set
+   `CF_ACCESS_TEAM_DOMAIN` (your Zero Trust team name) and `CF_ACCESS_AUD` (the
+   AUD tag from step 5) in `wrangler.toml` `[vars]`, then `npm run deploy`
+   again. With these set, the Worker re-verifies the signed Access JWT on every
+   `/mcp` request and rejects anything the edge didn't authenticate — so a
+   misconfigured route or removed policy can't expose your X account. Leave them
+   unset only for local `wrangler dev`.
 
 ### Connect Claude Desktop / Claude Code
 
