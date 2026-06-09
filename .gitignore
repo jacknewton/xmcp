@@ -1,4 +1,5 @@
 .DS_Store
+.gstack/
 __pycache__/
 *.py[cod]
 .venv/
