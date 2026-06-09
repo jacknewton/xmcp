@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 
-const OAUTH2_TOKEN_URL = "https://api.twitter.com/2/oauth2/token";
+const OAUTH2_TOKEN_URL = "https://api.x.com/2/oauth2/token";
 const REFRESH_THRESHOLD_MS = 5 * 60 * 1000;
 const DEFAULT_LIFETIME_MS = 7200 * 1000;
 
