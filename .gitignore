@@ -9,6 +9,7 @@ env/
 .env.*
 !.env.example
 .oauth_state.json
+bootstrap-token.mjs
 worker/node_modules/
 worker/.wrangler/
 worker/.dev.vars

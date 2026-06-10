@@ -30,8 +30,8 @@ XMCP_LOG_RAW_ARGS = "0"
 # so the Worker re-verifies the Cloudflare Access JWT instead of trusting the
 # edge alone. TEAM_DOMAIN is your Zero Trust team name (e.g. "newton" or
 # "newton.cloudflareaccess.com"); AUD is the Access application's Audience tag.
-# CF_ACCESS_TEAM_DOMAIN = "your-team"
-# CF_ACCESS_AUD = "your-access-application-aud-tag"
+CF_ACCESS_TEAM_DOMAIN = "wild-lake-ec4f"
+CF_ACCESS_AUD = "9aac30c33c814d6bc0fbb570c134567cb62ac3268b93247bf7ac68c23c797a4c"
 
 [observability.logs]
 enabled = true
